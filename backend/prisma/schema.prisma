@@ -1,0 +1,446 @@
+// CollabHub AI Database Schema
+// PostgreSQL with Prisma ORM
+// Version: 2.0.0
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  name          String
+  role          UserRole  @default(DEVELOPER)
+  avatar        String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  lastLogin     DateTime? @map("last_login")
+
+  // Relations
+  ownedProjects       Project[]        @relation("ProjectOwner")
+  projectMemberships  ProjectMember[]
+  createdTasks        Task[]           @relation("TaskCreator")
+  approvals           HumanApproval[]
+  messages            Message[]
+  recordings          SessionRecording[]
+  certificates        Certificate[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  DEVELOPER
+  VIEWER
+}
+
+// ============================================
+// PROJECTS & ORGANIZATION
+// ============================================
+
+model Project {
+  id          String        @id @default(uuid())
+  name        String
+  description String?       @db.Text
+  ownerId     String        @map("owner_id")
+  status      ProjectStatus @default(ACTIVE)
+  settings    Json?         // Project-specific configuration
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  owner            User               @relation("ProjectOwner", fields: [ownerId], references: [id])
+  members          ProjectMember[]
+  agents           ProjectAgent[]
+  channels         Channel[]
+  tasks            Task[]
+  contexts         Context[]
+  veraLedger       VeraLedger[]
+  recordings       SessionRecording[]
+  certificates     Certificate[]
+
+  @@map("projects")
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+model ProjectMember {
+  projectId  String          @map("project_id")
+  userId     String          @map("user_id")
+  role       ProjectMemberRole
+  joinedAt   DateTime        @default(now()) @map("joined_at")
+  invitedBy  String?         @map("invited_by")
+
+  // Relations
+  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@map("project_members")
+}
+
+enum ProjectMemberRole {
+  LEAD
+  COLLABORATOR
+  VIEWER
+}
+
+// ============================================
+// AI AGENTS
+// ============================================
+
+model Agent {
+  id            String       @id // e.g., 'claude_3_5_sonnet', 'gpt_4_turbo'
+  name          String       // Display name: "Claude 3.5 Sonnet"
+  type          AgentType
+  modelVersion  String       @map("model_version")
+  provider      String       // 'anthropic', 'openai', 'google', 'perplexity'
+  capabilities  Json         // Skills, specializations
+  rateLimit     Json?        @map("rate_limit_config") // API rate limits
+  status        AgentStatus  @default(ACTIVE)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  projectAssignments ProjectAgent[]
+  messages           Message[]      @relation("AgentMessages")
+  tasks              Task[]         @relation("AssignedToAgent")
+  contexts           Context[]
+  veraRecords        VeraLedger[]   @relation("AgentContributions")
+
+  @@map("agents")
+}
+
+enum AgentType {
+  CLAUDE
+  GPT4
+  GEMINI
+  PERPLEXITY
+  CUSTOM
+}
+
+enum AgentStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+model ProjectAgent {
+  projectId  String          @map("project_id")
+  agentId    String          @map("agent_id")
+  role       AgentRole
+  assignedAt DateTime        @default(now()) @map("assigned_at")
+  assignedBy String?         @map("assigned_by")
+  settings   Json?           // Agent-specific project settings
+
+  // Relations
+  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agent      Agent           @relation(fields: [agentId], references: [id])
+
+  @@id([projectId, agentId])
+  @@map("project_agents")
+}
+
+enum AgentRole {
+  LEAD
+  SPECIALIST
+  SUPPORT
+  RESEARCH
+}
+
+// ============================================
+// COMMUNICATION
+// ============================================
+
+model Channel {
+  id          String       @id @default(uuid())
+  projectId   String       @map("project_id")
+  name        String
+  type        ChannelType  @default(PUBLIC)
+  description String?      @db.Text
+  createdBy   String       @map("created_by")
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  // Relations
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages    Message[]
+  recordings  SessionRecording[]
+
+  @@map("channels")
+}
+
+enum ChannelType {
+  GENERAL
+  DEVELOPMENT
+  MARKETING
+  DESIGN
+  PRIVATE
+  PUBLIC
+}
+
+model Message {
+  id              String       @id @default(uuid())
+  channelId       String       @map("channel_id")
+  senderType      SenderType   @map("sender_type")
+  senderId        String       @map("sender_id") // user_id or agent_id
+  content         String       @db.Text
+  contentHash     String       @map("content_hash") // SHA-256
+  parentId        String?      @map("parent_message_id") // For threading
+  veraTracked     Boolean      @default(true) @map("vera_tracked")
+  veraLogId       String?      @map("vera_log_id")
+  metadata        Json?        // Attachments, formatting, etc.
+  createdAt       DateTime     @default(now()) @map("created_at")
+  editedAt        DateTime?    @map("edited_at")
+
+  // Relations
+  channel         Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user            User?        @relation(fields: [senderId], references: [id], map: "message_user_fk")
+  agent           Agent?       @relation("AgentMessages", fields: [senderId], references: [id], map: "message_agent_fk")
+  parent          Message?     @relation("MessageThread", fields: [parentId], references: [id])
+  replies         Message[]    @relation("MessageThread")
+  veraLog         VeraLedger?  @relation(fields: [veraLogId], references: [id])
+
+  @@index([channelId, createdAt])
+  @@map("messages")
+}
+
+enum SenderType {
+  HUMAN
+  AI
+  SYSTEM
+}
+
+// ============================================
+// TASK MANAGEMENT
+// ============================================
+
+model Task {
+  id                  String         @id @default(uuid())
+  projectId           String         @map("project_id")
+  title               String
+  description         String?        @db.Text
+  assignedTo          String?        @map("assigned_to") // agent_id or user_id
+  assignedType        AssignedType?  @map("assigned_type")
+  createdBy           String         @map("created_by")
+  priority            TaskPriority   @default(MEDIUM)
+  status              TaskStatus     @default(PENDING)
+  dependencies        Json?          // Array of task IDs
+  deliverables        Json?          // Expected outputs
+  estimatedDuration   Int?           @map("estimated_duration") // Minutes
+  actualDuration      Int?           @map("actual_duration") // Minutes
+  humanApprovalReq    Boolean        @default(false) @map("human_approval_required")
+  createdAt           DateTime       @default(now()) @map("created_at")
+  startedAt           DateTime?      @map("started_at")
+  completedAt         DateTime?      @map("completed_at")
+  dueDate             DateTime?      @map("due_date")
+
+  // Relations
+  project             Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator             User           @relation("TaskCreator", fields: [createdBy], references: [id])
+  assignedAgent       Agent?         @relation("AssignedToAgent", fields: [assignedTo], references: [id], map: "task_agent_fk")
+  approvals           HumanApproval[]
+
+  @@index([projectId, status])
+  @@map("tasks")
+}
+
+enum AssignedType {
+  USER
+  AGENT
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  REVIEW
+  COMPLETED
+  FAILED
+  BLOCKED
+}
+
+model HumanApproval {
+  id              String         @id @default(uuid())
+  taskId          String         @map("task_id")
+  checkpointName  String         @map("checkpoint_name")
+  status          ApprovalStatus @default(PENDING)
+  requestedBy     String         @map("requested_by") // agent_id
+  reviewerId      String?        @map("reviewer_id")
+  comments        String?        @db.Text
+  approvedAt      DateTime?      @map("approved_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  // Relations
+  task            Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  reviewer        User?          @relation(fields: [reviewerId], references: [id])
+
+  @@map("human_approvals")
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+// ============================================
+// CONTEXT MANAGEMENT
+// ============================================
+
+model Context {
+  id              String       @id @default(uuid())
+  projectId       String       @map("project_id")
+  agentId         String       @map("agent_id")
+  contextType     ContextType  @map("context_type")
+  content         Json         // Compressed conversation/data
+  importanceScore Int          @default(5) @map("importance_score") // 1-10
+  accessCount     Int          @default(0) @map("access_count")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  expiresAt       DateTime?    @map("expires_at")
+
+  // Relations
+  project         Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agent           Agent        @relation(fields: [agentId], references: [id])
+
+  @@index([projectId, agentId])
+  @@map("contexts")
+}
+
+enum ContextType {
+  CONVERSATION
+  TASK
+  DECISION
+  RESEARCH
+  CODE
+}
+
+// ============================================
+// VERA ATTRIBUTION LEDGER
+// ============================================
+
+model VeraLedger {
+  id                  String             @id @default(uuid())
+  projectId           String             @map("project_id")
+  interactionType     InteractionType    @map("interaction_type")
+  fromEntity          String             @map("from_entity") // user_id or agent_id
+  toEntity            String?            @map("to_entity")
+  contentSummary      String             @map("content_summary") @db.Text
+  contentHash         String             @map("content_hash") // SHA-256
+  fullContentEncrypt  String?            @map("full_content_encrypted") @db.Text
+  impactScore         Float              @default(1.0) @map("impact_score") // 0-10
+  contributionType    ContributionType   @map("contribution_type")
+  blockchainHash      String?            @map("blockchain_hash")
+  verified            Boolean            @default(false)
+  createdAt           DateTime           @default(now()) @map("created_at")
+
+  // Relations
+  project             Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agent               Agent?             @relation("AgentContributions", fields: [fromEntity], references: [id], map: "vera_agent_fk")
+  messages            Message[]
+
+  @@index([projectId, createdAt])
+  @@index([contentHash])
+  @@map("vera_ledger")
+}
+
+enum InteractionType {
+  TASK_ASSIGNMENT
+  TASK_COMPLETION
+  MESSAGE
+  DECISION
+  APPROVAL
+  CODE_GENERATION
+  RESEARCH
+  REVIEW
+}
+
+enum ContributionType {
+  COORDINATION
+  EXECUTION
+  REVIEW
+  RESEARCH
+  DESIGN
+  DOCUMENTATION
+  PLANNING
+}
+
+// ============================================
+// SESSION RECORDING
+// ============================================
+
+model SessionRecording {
+  id            String            @id @default(uuid())
+  projectId     String            @map("project_id")
+  channelId     String            @map("channel_id")
+  startedBy     String            @map("started_by")
+  duration      Int?              // Seconds
+  status        RecordingStatus   @default(RECORDING)
+  recordingData Json?             @map("recording_data") // Metadata, markers, etc.
+  startedAt     DateTime          @default(now()) @map("started_at")
+  endedAt       DateTime?         @map("ended_at")
+
+  // Relations
+  project       Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  channel       Channel           @relation(fields: [channelId], references: [id])
+  user          User              @relation(fields: [startedBy], references: [id])
+
+  @@map("session_recordings")
+}
+
+enum RecordingStatus {
+  RECORDING
+  PAUSED
+  STOPPED
+  PROCESSING
+}
+
+// ============================================
+// CERTIFICATES
+// ============================================
+
+model Certificate {
+  id               String           @id @default(uuid())
+  projectId        String           @map("project_id")
+  certificateType  CertificateType  @map("certificate_type")
+  issuedTo         String           @map("issued_to")
+  contentHash      String           @map("content_hash") // SHA-256
+  verificationUrl  String?          @map("verification_url")
+  metadata         Json             // Contributors, stats, etc.
+  issuedAt         DateTime         @default(now()) @map("issued_at")
+
+  // Relations
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user             User             @relation(fields: [issuedTo], references: [id])
+
+  @@map("certificates")
+}
+
+enum CertificateType {
+  AUTHORSHIP
+  CONTRIBUTION
+  COMPLETION
+  COLLABORATION
+}
