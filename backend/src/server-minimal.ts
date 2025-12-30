@@ -35,6 +35,8 @@ import libraryRoutes from './routes/library.routes';
 import githubRoutes from './routes/github.routes';
 import { initializeStorage } from './services/library/storage.service';
 import { buildEnrichedContext, trackContextUsage } from './services/context/context-injection.service';
+import { getIntelligentRouter } from './services/routing/intelligent-router.service';
+import { getDigitalMuseService } from './services/digital-muse/digital-muse.service';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -127,7 +129,136 @@ app.get('/api/health/:provider', async (req, res) => {
   }
 });
 
-// Message endpoint
+// Digital Muse health check
+app.get('/api/health/digital-muse', async (req, res) => {
+  try {
+    const digitalMuse = getDigitalMuseService();
+    const health = await digitalMuse.healthCheck();
+
+    res.json({
+      provider: 'digital-muse',
+      status: health.available ? 'online' : 'offline',
+      model: health.model,
+      host: health.host,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      provider: 'digital-muse',
+      status: 'offline',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Intelligent router health check
+app.get('/api/health/router', async (req, res) => {
+  try {
+    const router = getIntelligentRouter();
+    const health = await router.healthCheck();
+
+    res.json({
+      status: 'online',
+      digitalMuse: health.digitalMuse,
+      cloudAgents: health.cloudAgents,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: 'offline',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Query triage endpoint (for testing and debugging)
+app.post('/api/triage', async (req, res) => {
+  try {
+    const { query, preferences } = req.body;
+
+    if (!query) {
+      return res.status(400).json({ error: 'Query is required' });
+    }
+
+    const digitalMuse = getDigitalMuseService();
+    const triageResult = await digitalMuse.triage(query, preferences);
+
+    res.json(triageResult);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Hybrid routing endpoint (uses Digital Muse + intelligent routing)
+app.post('/api/messages/hybrid', async (req, res) => {
+  try {
+    const { content, conversationHistory, projectId, preferences } = req.body;
+
+    if (!content) {
+      return res.status(400).json({ error: 'Content is required' });
+    }
+
+    console.log('[Hybrid] Processing query with intelligent routing...');
+
+    // Build context from conversation history
+    let contextMessages: Array<{role: string, content: string, author?: string}> = [];
+    if (conversationHistory && conversationHistory.length > 0) {
+      contextMessages = conversationHistory.map((msg: any) => ({
+        role: msg.role,
+        content: msg.content,
+        author: msg.authorName || msg.authorId
+      }));
+    }
+
+    // Build enriched context if projectId provided
+    let enrichedContext = undefined;
+    if (projectId) {
+      try {
+        console.log(`[Hybrid] Building enriched context for project: ${projectId}`);
+        enrichedContext = await buildEnrichedContext(
+          projectId,
+          'digital-muse', // Use digital-muse as the agent for context building
+          content,
+          contextMessages,
+          'digital-muse'
+        );
+        console.log(`[Hybrid] Context built: ${enrichedContext.metadata.documentsIncluded} docs, ${enrichedContext.metadata.codeFilesIncluded} files`);
+      } catch (contextError: any) {
+        console.warn('[Hybrid] Failed to build context:', contextError.message);
+      }
+    }
+
+    // Route intelligently
+    const router = getIntelligentRouter();
+    const result = await router.route(content, contextMessages, enrichedContext, preferences);
+
+    console.log('[Hybrid] Query processed', {
+      strategy: result.routingStrategy,
+      agentsUsed: result.agentsUsed,
+      cost: result.totalCost,
+      timeMs: result.executionTimeMs
+    });
+
+    res.json({
+      content: result.answer,
+      routingStrategy: result.routingStrategy,
+      agentsUsed: result.agentsUsed,
+      executionTimeMs: result.executionTimeMs,
+      cost: result.totalCost,
+      digitalMuseBadge: result.digitalMuseBadge,
+      triageResult: result.triageResult,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error: any) {
+    console.error('[Hybrid] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Message endpoint (original, direct routing to specific agents)
 app.post('/api/messages', async (req, res) => {
   try {
     const { content, agentId, conversationHistory, activeAgents, projectId, messageId } = req.body;
