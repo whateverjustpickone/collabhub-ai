@@ -41,6 +41,11 @@
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-gray-600;
   }
+
+  /* Force scrollbar to always show space */
+  .scrollbar-stable {
+    scrollbar-gutter: stable;
+  }
 }
 
 @layer components {

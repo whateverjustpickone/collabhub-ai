@@ -16,9 +16,14 @@ export type LLMProvider =
   | 'openai'
   | 'google'
   | 'perplexity'
-  | 'deepseek'
+  | 'mistral'
   | 'xai'
-  | 'manus';
+  | 'deepseek'
+  | 'manus'
+  | 'meta'
+  | 'cohere'
+  | 'alibaba'
+  | 'inflection';
 
 // Agent Types
 export interface Agent {
@@ -165,7 +170,7 @@ export interface RegisterData {
   name: string;
 }
 
-// Executive Team Agent Profiles
+// Executive Team Agent Profiles - 12 Members
 export const EXECUTIVE_TEAM_AGENTS: Agent[] = [
   {
     id: 'claude-3.5-sonnet',
@@ -220,41 +225,106 @@ export const EXECUTIVE_TEAM_AGENTS: Agent[] = [
     priority: 1,
   },
   {
-    id: 'deepseek-v2',
-    name: 'DeepSeek',
-    provider: 'deepseek',
-    model: 'deepseek-v2',
-    avatar: '/agents/deepseek.svg',
-    description: 'Advanced reasoning, technical analysis, code understanding',
-    status: 'offline',
-    capabilities: ['Technical Architecture', 'Deep Reasoning', 'Systems Analysis'],
-    color: '#8B5CF6',
+    id: 'mistral-large',
+    name: 'Mistral',
+    provider: 'mistral',
+    model: 'mistral-large-latest',
+    avatar: '/agents/mistral.svg',
+    description: 'European AI, multilingual expertise, regulatory compliance',
+    status: 'online',
+    capabilities: ['Multilingual', 'European Compliance', 'Efficient Reasoning'],
+    color: '#F97316',
     isExecutiveTeam: true,
-    priority: 2,
+    priority: 1,
   },
   {
     id: 'grok-2',
     name: 'Grok',
     provider: 'xai',
-    model: 'grok-2',
+    model: 'grok-2-1212',
     avatar: '/agents/grok.svg',
-    description: 'Real-time information, unconventional perspectives',
-    status: 'offline',
+    description: 'Real-time information, unconventional perspectives, tech insights',
+    status: 'online',
     capabilities: ['Alternative Viewpoints', 'Real-Time Data', 'Creative Disruption'],
     color: '#EC4899',
+    isExecutiveTeam: true,
+    priority: 1,
+  },
+  {
+    id: 'deepseek-chat',
+    name: 'DeepSeek',
+    provider: 'deepseek',
+    model: 'deepseek-chat',
+    avatar: '/agents/deepseek.svg',
+    description: 'Advanced reasoning, technical analysis, code understanding',
+    status: 'online',
+    capabilities: ['Technical Architecture', 'Deep Reasoning', 'Systems Analysis'],
+    color: '#8B5CF6',
+    isExecutiveTeam: true,
+    priority: 1,
+  },
+  {
+    id: 'manus-1',
+    name: 'Manus AI',
+    provider: 'manus',
+    model: 'manus-1',
+    avatar: '/agents/manus.svg',
+    description: 'Asia-Pacific insights, multilateral collaboration, business pragmatism',
+    status: 'offline',
+    capabilities: ['Asia-Pacific Markets', 'Cross-Cultural Collaboration', 'Business Strategy'],
+    color: '#F59E0B',
     isExecutiveTeam: true,
     priority: 2,
   },
   {
-    id: 'manus',
-    name: 'Manus',
-    provider: 'manus',
-    model: 'manus-v1',
-    avatar: '/agents/manus.svg',
-    description: 'Autonomous agent, independent reasoning, task execution',
+    id: 'llama-3.3',
+    name: 'Llama',
+    provider: 'meta',
+    model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    avatar: '/agents/llama.svg',
+    description: 'Open-source leader, democratizing AI access, cost-effective performance',
     status: 'offline',
-    capabilities: ['Autonomous Workflows', 'Task Execution', 'Dynamic Planning'],
-    color: '#F59E0B',
+    capabilities: ['Open Source', 'Community-Driven', 'Cost-Effective'],
+    color: '#0EA5E9',
+    isExecutiveTeam: true,
+    priority: 2,
+  },
+  {
+    id: 'command-r-plus',
+    name: 'Command R+',
+    provider: 'cohere',
+    model: 'command-r-plus',
+    avatar: '/agents/cohere.svg',
+    description: 'Enterprise RAG specialist, production-grade deployment, business applications',
+    status: 'offline',
+    capabilities: ['Enterprise RAG', 'Production-Grade', 'Business Intelligence'],
+    color: '#14B8A6',
+    isExecutiveTeam: true,
+    priority: 2,
+  },
+  {
+    id: 'qwen-turbo',
+    name: 'Qwen',
+    provider: 'alibaba',
+    model: 'qwen-turbo',
+    avatar: '/agents/qwen.svg',
+    description: 'Chinese language expertise, multimodal understanding, Eastern tech approaches',
+    status: 'offline',
+    capabilities: ['Chinese Language', 'Multimodal', 'Eastern Perspectives'],
+    color: '#FF6A00',
+    isExecutiveTeam: true,
+    priority: 2,
+  },
+  {
+    id: 'inflection-3-pi',
+    name: 'Pi',
+    provider: 'inflection',
+    model: 'inflection-3-pi',
+    avatar: '/agents/pi.svg',
+    description: 'Personal AI, human accessibility, emotional intelligence, "explain like I\'m 5"',
+    status: 'offline',
+    capabilities: ['Human Accessibility', 'Emotional Intelligence', 'Personal Touch'],
+    color: '#A855F7',
     isExecutiveTeam: true,
     priority: 2,
   },

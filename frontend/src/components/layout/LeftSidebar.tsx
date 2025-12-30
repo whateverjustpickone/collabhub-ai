@@ -123,7 +123,10 @@ const LeftSidebar = () => {
         </div>
 
         {/* New Chat Button */}
-        <button className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium">
+        <button
+          onClick={() => useAppStore.getState().setMessages([])}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
+        >
           <PlusIcon className="w-5 h-5" />
           New Chat
         </button>

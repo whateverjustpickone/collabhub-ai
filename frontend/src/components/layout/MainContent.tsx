@@ -19,43 +19,6 @@ const MainContent = () => {
   const { messages, currentChannel, agents, activeAgents } = useAppStore();
   const [messageInput, setMessageInput] = useState('');
 
-  // Demo messages for UI
-  const demoMessages: Message[] = [
-    {
-      id: '1',
-      channelId: 'demo',
-      content: 'Welcome to CollabHub AI! The Executive Team is ready to collaborate.',
-      authorType: 'system',
-      authorId: 'system',
-      authorName: 'System',
-      timestamp: new Date().toISOString(),
-    },
-    {
-      id: '2',
-      channelId: 'demo',
-      content: 'Hello! I\'m ready to help evaluate the CollabHub AI platform and provide strategic insights.',
-      authorType: 'agent',
-      authorId: 'claude-3.5-sonnet',
-      authorName: 'Claude',
-      agentProvider: 'anthropic',
-      timestamp: new Date().toISOString(),
-      veraHash: 'a3f2c9e8...',
-    },
-    {
-      id: '3',
-      channelId: 'demo',
-      content: 'Great to be here! I can assist with creative problem-solving and general analysis.',
-      authorType: 'agent',
-      authorId: 'gpt-4-turbo',
-      authorName: 'GPT-4',
-      agentProvider: 'openai',
-      timestamp: new Date().toISOString(),
-      veraHash: 'b7d4e1a9...',
-    },
-  ];
-
-  const displayMessages = messages.length > 0 ? messages : demoMessages;
-
   const handleSendMessage = () => {
     if (!messageInput.trim()) return;
 
@@ -72,27 +35,60 @@ const MainContent = () => {
     useAppStore.getState().addMessage(newMessage);
     setMessageInput('');
 
-    // Simulate agent responses (TODO: Replace with real LLM integration in Week 2)
-    setTimeout(() => {
-      const activeAgentList = agents.filter((a) => activeAgents.includes(a.id));
-      activeAgentList.forEach((agent, index) => {
-        setTimeout(() => {
+    // Call backend API for real LLM responses
+    const activeAgentList = agents.filter((a) => activeAgents.includes(a.id));
+    activeAgentList.forEach((agent, index) => {
+      setTimeout(async () => {
+        try {
+          const response = await fetch('http://localhost:3001/api/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              content: messageInput,
+              agentId: agent.id,
+              conversationHistory: messages.slice(-10), // Send last 10 messages for context
+              activeAgents: activeAgents, // Tell agent who else is active
+            }),
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            const agentMessage: Message = {
+              id: `${Date.now()}-${agent.id}`,
+              channelId: currentChannel?.id || 'demo',
+              content: data.response,
+              authorType: 'agent',
+              authorId: agent.id,
+              authorName: agent.name,
+              agentProvider: agent.provider,
+              timestamp: new Date().toISOString(),
+              veraHash: `vera-${Date.now()}...`,
+            };
+            useAppStore.getState().addMessage(agentMessage);
+            useAppStore.getState().incrementContributions();
+          } else {
+            console.error('Error from backend:', data.error);
+          }
+        } catch (error) {
+          console.error('Error calling backend:', error);
+          // Fallback to demo response if backend is down
           const agentMessage: Message = {
             id: `${Date.now()}-${agent.id}`,
             channelId: currentChannel?.id || 'demo',
-            content: `[Demo Response] This is a simulated response from ${agent.name}. Real LLM integration coming in Week 2!`,
+            content: `[Offline] Backend unavailable. Please check that the backend server is running on port 3001.`,
             authorType: 'agent',
             authorId: agent.id,
             authorName: agent.name,
             agentProvider: agent.provider,
             timestamp: new Date().toISOString(),
-            veraHash: `demo-hash-${agent.id}...`,
           };
           useAppStore.getState().addMessage(agentMessage);
-          useAppStore.getState().incrementContributions();
-        }, index * 1000);
-      });
-    }, 500);
+        }
+      }, index * 2000);
+    });
   };
 
   const getAgentColor = (provider?: string) => {
@@ -146,7 +142,7 @@ const MainContent = () => {
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-950">
-        {displayMessages.map((message) => (
+        {messages.map((message) => (
           <div
             key={message.id}
             className={`flex gap-3 ${

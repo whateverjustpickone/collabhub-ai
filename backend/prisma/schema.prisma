@@ -27,13 +27,16 @@ model User {
   lastLogin     DateTime? @map("last_login")
 
   // Relations
-  ownedProjects       Project[]        @relation("ProjectOwner")
+  ownedProjects       Project[]             @relation("ProjectOwner")
   projectMemberships  ProjectMember[]
-  createdTasks        Task[]           @relation("TaskCreator")
+  createdTasks        Task[]                @relation("TaskCreator")
   approvals           HumanApproval[]
   messages            Message[]
   recordings          SessionRecording[]
   certificates        Certificate[]
+  uploadedDocuments   LibraryDocument[]     @relation("DocumentUploader")
+  editApprovals       AgentDocumentEdit[]   @relation("EditApprover")
+  githubConnections   GitHubConnection[]    @relation("GitHubUser")
 
   @@map("users")
 }
@@ -60,15 +63,19 @@ model Project {
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
   // Relations
-  owner            User               @relation("ProjectOwner", fields: [ownerId], references: [id])
-  members          ProjectMember[]
-  agents           ProjectAgent[]
-  channels         Channel[]
-  tasks            Task[]
-  contexts         Context[]
-  veraLedger       VeraLedger[]
-  recordings       SessionRecording[]
-  certificates     Certificate[]
+  owner              User                 @relation("ProjectOwner", fields: [ownerId], references: [id])
+  members            ProjectMember[]
+  agents             ProjectAgent[]
+  channels           Channel[]
+  tasks              Task[]
+  contexts           Context[]
+  veraLedger         VeraLedger[]
+  recordings         SessionRecording[]
+  certificates       Certificate[]
+  libraryCategories  LibraryCategory[]
+  libraryDocuments   LibraryDocument[]
+  githubConnections  GitHubConnection[]   @relation("GitHubProject")
+  githubRepositories GitHubRepository[]   @relation("GitHubRepoProject")
 
   @@map("projects")
 }
@@ -118,11 +125,16 @@ model Agent {
   updatedAt     DateTime     @updatedAt @map("updated_at")
 
   // Relations
-  projectAssignments ProjectAgent[]
-  messages           Message[]      @relation("AgentMessages")
-  tasks              Task[]         @relation("AssignedToAgent")
-  contexts           Context[]
-  veraRecords        VeraLedger[]   @relation("AgentContributions")
+  projectAssignments  ProjectAgent[]          @relation
+  messages            Message[]               @relation("AgentMessages")
+  tasks               Task[]                  @relation("AssignedToAgent")
+  contexts            Context[]
+  veraRecords         VeraLedger[]            @relation("AgentContributions")
+  documentEdits       AgentDocumentEdit[]     @relation("AgentDocumentEdits")
+  documentUsage       ContextDocumentUsage[]  @relation("DocumentUsage")
+  pullRequestsCreated GitHubPullRequest[]     @relation("PRCreator")
+  issuesCreated       GitHubIssue[]           @relation("IssueCreator")
+  githubUsage         ContextGitHubUsage[]    @relation("GitHubUsage")
 
   @@map("agents")
 }
@@ -209,12 +221,14 @@ model Message {
   editedAt        DateTime?    @map("edited_at")
 
   // Relations
-  channel         Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  user            User?        @relation(fields: [senderId], references: [id], map: "message_user_fk")
-  agent           Agent?       @relation("AgentMessages", fields: [senderId], references: [id], map: "message_agent_fk")
-  parent          Message?     @relation("MessageThread", fields: [parentId], references: [id])
-  replies         Message[]    @relation("MessageThread")
-  veraLog         VeraLedger?  @relation(fields: [veraLogId], references: [id])
+  channel           Channel                @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user              User?                  @relation(fields: [senderId], references: [id], map: "message_user_fk")
+  agent             Agent?                 @relation("AgentMessages", fields: [senderId], references: [id], map: "message_agent_fk")
+  parent            Message?               @relation("MessageThread", fields: [parentId], references: [id])
+  replies           Message[]              @relation("MessageThread")
+  veraLog           VeraLedger?            @relation(fields: [veraLogId], references: [id])
+  documentUsage     ContextDocumentUsage[] @relation("DocumentContextUsage")
+  githubUsage       ContextGitHubUsage[]   @relation("GitHubContextUsage")
 
   @@index([channelId, createdAt])
   @@map("messages")
@@ -360,6 +374,7 @@ model VeraLedger {
   project             Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   agent               Agent?             @relation("AgentContributions", fields: [fromEntity], references: [id], map: "vera_agent_fk")
   messages            Message[]
+  libraryDocuments    LibraryDocument[]  @relation("DocumentContributions")
 
   @@index([projectId, createdAt])
   @@index([contentHash])
@@ -443,4 +458,326 @@ enum CertificateType {
   CONTRIBUTION
   COMPLETION
   COLLABORATION
+}
+
+// ============================================
+// KNOWLEDGE LIBRARY
+// ============================================
+
+model LibraryCategory {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  parentId    String?  @map("parent_id")
+  icon        String?
+  color       String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  projectId   String   @map("project_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent    LibraryCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children  LibraryCategory[] @relation("CategoryHierarchy")
+  documents LibraryDocument[]
+
+  @@index([projectId, sortOrder])
+  @@map("library_categories")
+}
+
+model LibraryDocument {
+  id             String           @id @default(uuid())
+  projectId      String           @map("project_id")
+  categoryId     String?          @map("category_id")
+  title          String
+  description    String?          @db.Text
+  fileType       DocumentFileType @map("file_type")
+  fileName       String           @map("file_name")
+  filePath       String           @map("file_path")
+  fileSize       Int              @map("file_size")
+  mimeType       String           @map("mime_type")
+  contentText    String?          @db.Text
+  contentHash    String           @map("content_hash")
+  uploadedBy     String           @map("uploaded_by")
+  tags           String[]
+  metadata       Json?
+  version        Int              @default(1)
+  isActive       Boolean          @default(true) @map("is_active")
+  accessCount    Int              @default(0) @map("access_count")
+  lastAccessedAt DateTime?        @map("last_accessed_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  project      Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  category     LibraryCategory?       @relation(fields: [categoryId], references: [id])
+  uploader     User                   @relation("DocumentUploader", fields: [uploadedBy], references: [id])
+  versions     DocumentVersion[]
+  contextUsage ContextDocumentUsage[]
+  agentEdits   AgentDocumentEdit[]
+  veraRecords  VeraLedger[]           @relation("DocumentContributions")
+
+  @@index([projectId, isActive])
+  @@index([contentHash])
+  @@index([tags])
+  @@map("library_documents")
+}
+
+enum DocumentFileType {
+  TEXT
+  MARKDOWN
+  PDF
+  CODE
+  IMAGE
+  JSON
+  XML
+  YAML
+  CSV
+  OTHER
+}
+
+model DocumentVersion {
+  id             String     @id @default(uuid())
+  documentId     String     @map("document_id")
+  version        Int
+  contentText    String?    @db.Text
+  contentHash    String     @map("content_hash")
+  changesSummary String?    @db.Text
+  editedBy       String     @map("edited_by")
+  editedByType   SenderType @map("edited_by_type")
+  createdAt      DateTime   @default(now()) @map("created_at")
+
+  // Relations
+  document LibraryDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, version])
+  @@map("document_versions")
+}
+
+model AgentDocumentEdit {
+  id            String    @id @default(uuid())
+  documentId    String    @map("document_id")
+  agentId       String    @map("agent_id")
+  editType      EditType
+  contentBefore String?   @db.Text
+  contentAfter  String    @db.Text
+  reasoning     String?   @db.Text
+  approved      Boolean   @default(false)
+  approvedBy    String?   @map("approved_by")
+  approvedAt    DateTime? @map("approved_at")
+  veraHash      String    @map("vera_hash")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  document LibraryDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  agent    Agent           @relation("AgentDocumentEdits", fields: [agentId], references: [id])
+  approver User?           @relation("EditApprover", fields: [approvedBy], references: [id])
+
+  @@index([documentId, agentId])
+  @@map("agent_document_edits")
+}
+
+enum EditType {
+  CREATE
+  UPDATE
+  DELETE
+  APPEND
+}
+
+model ContextDocumentUsage {
+  id             String    @id @default(uuid())
+  documentId     String    @map("document_id")
+  messageId      String    @map("message_id")
+  agentId        String    @map("agent_id")
+  relevanceScore Float     @default(1.0) @map("relevance_score")
+  usageType      UsageType @map("usage_type")
+  tokensUsed     Int       @map("tokens_used")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  document LibraryDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  message  Message         @relation("DocumentContextUsage", fields: [messageId], references: [id], onDelete: Cascade)
+  agent    Agent           @relation("DocumentUsage", fields: [agentId], references: [id])
+
+  @@index([documentId, agentId])
+  @@index([messageId])
+  @@map("context_document_usage")
+}
+
+enum UsageType {
+  REFERENCED
+  AUTO_INJECTED
+  FULL_TEXT
+  SUMMARY
+}
+
+// ============================================
+// GITHUB INTEGRATION
+// ============================================
+
+model GitHubConnection {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  projectId      String    @map("project_id")
+  accessToken    String    @map("access_token")
+  refreshToken   String?   @map("refresh_token")
+  tokenExpiresAt DateTime? @map("token_expires_at")
+  githubUserId   String    @map("github_user_id")
+  githubUsername String    @map("github_username")
+  scopes         String[]
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user         User               @relation("GitHubUser", fields: [userId], references: [id], onDelete: Cascade)
+  project      Project            @relation("GitHubProject", fields: [projectId], references: [id], onDelete: Cascade)
+  repositories GitHubRepository[]
+
+  @@unique([userId, projectId])
+  @@index([githubUserId])
+  @@map("github_connections")
+}
+
+model GitHubRepository {
+  id            String    @id @default(uuid())
+  connectionId  String    @map("connection_id")
+  projectId     String    @map("project_id")
+  githubRepoId  String    @map("github_repo_id")
+  fullName      String    @map("full_name")
+  defaultBranch String    @map("default_branch")
+  isPrivate     Boolean   @map("is_private")
+  description   String?   @db.Text
+  language      String?
+  lastSyncedAt  DateTime? @map("last_synced_at")
+  syncEnabled   Boolean   @default(true) @map("sync_enabled")
+  metadata      Json?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  connection   GitHubConnection     @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  project      Project              @relation("GitHubRepoProject", fields: [projectId], references: [id], onDelete: Cascade)
+  codeFiles    GitHubCodeFile[]
+  pullRequests GitHubPullRequest[]
+  issues       GitHubIssue[]
+  contextUsage ContextGitHubUsage[]
+
+  @@unique([connectionId, githubRepoId])
+  @@index([projectId, syncEnabled])
+  @@map("github_repositories")
+}
+
+model GitHubCodeFile {
+  id            String    @id @default(uuid())
+  repositoryId  String    @map("repository_id")
+  filePath      String    @map("file_path")
+  fileName      String    @map("file_name")
+  fileType      String    @map("file_type")
+  contentText   String?   @db.Text
+  contentHash   String    @map("content_hash")
+  size          Int
+  branch        String    @default("main")
+  lastFetchedAt DateTime  @map("last_fetched_at")
+  metadata      Json?
+
+  // Relations
+  repository   GitHubRepository     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  contextUsage ContextGitHubUsage[]
+
+  @@unique([repositoryId, filePath, branch])
+  @@index([repositoryId, fileType])
+  @@map("github_code_files")
+}
+
+model GitHubPullRequest {
+  id              String   @id @default(uuid())
+  repositoryId    String   @map("repository_id")
+  prNumber        Int      @map("pr_number")
+  title           String
+  description     String?  @db.Text
+  state           PRState
+  baseBranch      String   @map("base_branch")
+  headBranch      String   @map("head_branch")
+  createdByAgent  String?  @map("created_by_agent")
+  githubUrl       String   @map("github_url")
+  veraHash        String?  @map("vera_hash")
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  repository GitHubRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  createdBy  Agent?           @relation("PRCreator", fields: [createdByAgent], references: [id])
+
+  @@unique([repositoryId, prNumber])
+  @@index([repositoryId, state])
+  @@map("github_pull_requests")
+}
+
+enum PRState {
+  OPEN
+  CLOSED
+  MERGED
+  DRAFT
+}
+
+model GitHubIssue {
+  id             String     @id @default(uuid())
+  repositoryId   String     @map("repository_id")
+  issueNumber    Int        @map("issue_number")
+  title          String
+  description    String?    @db.Text
+  state          IssueState
+  labels         String[]
+  createdByAgent String?    @map("created_by_agent")
+  githubUrl      String     @map("github_url")
+  veraHash       String?    @map("vera_hash")
+  metadata       Json?
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  repository GitHubRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  createdBy  Agent?           @relation("IssueCreator", fields: [createdByAgent], references: [id])
+
+  @@unique([repositoryId, issueNumber])
+  @@index([repositoryId, state])
+  @@map("github_issues")
+}
+
+enum IssueState {
+  OPEN
+  CLOSED
+}
+
+model ContextGitHubUsage {
+  id             String          @id @default(uuid())
+  repositoryId   String          @map("repository_id")
+  codeFileId     String?         @map("code_file_id")
+  messageId      String          @map("message_id")
+  agentId        String          @map("agent_id")
+  usageType      GitHubUsageType @map("usage_type")
+  relevanceScore Float           @default(1.0) @map("relevance_score")
+  tokensUsed     Int             @map("tokens_used")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  // Relations
+  repository GitHubRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  codeFile   GitHubCodeFile?  @relation(fields: [codeFileId], references: [id], onDelete: Cascade)
+  message    Message          @relation("GitHubContextUsage", fields: [messageId], references: [id], onDelete: Cascade)
+  agent      Agent            @relation("GitHubUsage", fields: [agentId], references: [id])
+
+  @@index([messageId])
+  @@index([repositoryId, agentId])
+  @@map("context_github_usage")
+}
+
+enum GitHubUsageType {
+  FILE_REFERENCED
+  CODE_ANALYZED
+  PR_REVIEWED
+  ISSUE_REFERENCED
+  COMMIT_ANALYZED
 }

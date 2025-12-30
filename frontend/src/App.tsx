@@ -1,10 +1,11 @@
 // CollabHub AI - Main Application Component
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppStore } from './store/index.ts';
 import LeftSidebar from './components/layout/LeftSidebar.tsx';
 import MainContent from './components/layout/MainContent.tsx';
 import RightSidebar from './components/layout/RightSidebar.tsx';
+import { startHealthMonitoring, stopHealthMonitoring } from './services/healthMonitor';
 
 function App() {
   const { auth, leftSidebarCollapsed, rightSidebarCollapsed } = useAppStore();
@@ -24,6 +25,16 @@ function App() {
       'demo-token'
     );
   }
+
+  // Start health monitoring when app mounts
+  useEffect(() => {
+    startHealthMonitoring();
+
+    // Cleanup: stop health monitoring when component unmounts
+    return () => {
+      stopHealthMonitoring();
+    };
+  }, []);
 
   return (
     <div className="flex h-screen bg-gray-900 text-gray-100 overflow-hidden">

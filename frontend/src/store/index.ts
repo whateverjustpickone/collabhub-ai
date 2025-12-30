@@ -95,7 +95,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Agents
   agents: EXECUTIVE_TEAM_AGENTS,
-  activeAgents: ['claude-3.5-sonnet', 'gpt-4-turbo', 'gemini-1.5-pro', 'perplexity-ai'], // Big 4 active by default
+  activeAgents: [
+    // Default 4 active agents for new chat sessions
+    'claude-3.5-sonnet',  // Claude (Anthropic)
+    'gpt-4-turbo',        // ChatGPT (OpenAI)
+    'manus-1',            // Manus AI (Butterfly Effect)
+    'perplexity-ai',      // Perplexity
+  ], // Default active agents
   toggleAgent: (agentId) =>
     set((state) => ({
       activeAgents: state.activeAgents.includes(agentId)
@@ -120,7 +126,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // VERA Attribution
   contributionCount: 0,
-  contributorCount: 4, // Big 4 agents
+  contributorCount: 12, // 12-member Executive Team
   incrementContributions: () =>
     set((state) => ({
       contributionCount: state.contributionCount + 1,
