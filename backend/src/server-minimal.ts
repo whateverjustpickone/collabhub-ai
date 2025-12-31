@@ -37,6 +37,7 @@ import { initializeStorage } from './services/library/storage.service';
 import { buildEnrichedContext, trackContextUsage } from './services/context/context-injection.service';
 import { getIntelligentRouter } from './services/routing/intelligent-router.service';
 import { getDigitalMuseService } from './services/digital-muse/digital-muse.service';
+import { getVeraService } from './services/vera/vera.service';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -191,6 +192,59 @@ app.post('/api/triage', async (req, res) => {
   }
 });
 
+// VERA attribution stats endpoint
+app.get('/api/vera/stats/:projectId', async (req, res) => {
+  try {
+    const { projectId } = req.params;
+
+    if (!projectId) {
+      return res.status(400).json({ error: 'Project ID is required' });
+    }
+
+    const veraService = getVeraService();
+    const stats = await veraService.getAttributionStats(projectId);
+
+    res.json({
+      projectId,
+      stats,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    console.error('[VERA Stats] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// VERA attribution history endpoint
+app.get('/api/vera/attributions/:projectId', async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { limit, offset, contributionType, fromEntity } = req.query;
+
+    if (!projectId) {
+      return res.status(400).json({ error: 'Project ID is required' });
+    }
+
+    const veraService = getVeraService();
+    const attributions = await veraService.getProjectAttributions(projectId, {
+      limit: limit ? parseInt(limit as string) : 100,
+      offset: offset ? parseInt(offset as string) : 0,
+      contributionType: contributionType as string,
+      fromEntity: fromEntity as string,
+    });
+
+    res.json({
+      projectId,
+      attributions,
+      count: attributions.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    console.error('[VERA Attributions] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Hybrid routing endpoint (uses Digital Muse + intelligent routing)
 app.post('/api/messages/hybrid', async (req, res) => {
   try {
@@ -247,8 +301,10 @@ app.post('/api/messages/hybrid', async (req, res) => {
       agentsUsed: result.agentsUsed,
       executionTimeMs: result.executionTimeMs,
       cost: result.totalCost,
+      costSavings: result.costSavings,
       digitalMuseBadge: result.digitalMuseBadge,
       triageResult: result.triageResult,
+      veraAttributionId: result.veraAttributionId, // VERA tracking ID
       timestamp: new Date().toISOString()
     });
 

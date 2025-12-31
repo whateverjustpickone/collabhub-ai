@@ -12,6 +12,7 @@ import {
   AgentResponse,
 } from '../digital-muse/digital-muse.service';
 import { EnrichedContext } from '../context/context-injection.service';
+import { getVeraService } from '../vera/vera.service';
 
 // Import cloud LLM services
 import { anthropicChat } from '../llm-minimal/anthropic';
@@ -35,14 +36,18 @@ export interface RoutedResponse {
   totalCost: number;
   triageResult?: TriageResult;
   digitalMuseBadge?: string;
+  veraAttributionId?: string; // VERA tracking ID
+  costSavings?: number; // Cost savings vs naive multi-LLM
 }
 
 export class IntelligentRouter {
   private digitalMuse: DigitalMuseService;
   private cloudAgents: Map<string, Function>;
+  private veraService: any; // VERA attribution service
 
   constructor() {
     this.digitalMuse = getDigitalMuseService();
+    this.veraService = getVeraService();
 
     // Map of agent IDs to their chat functions
     this.cloudAgents = new Map([
@@ -62,7 +67,7 @@ export class IntelligentRouter {
       ['inflection-3-pi', inflectionChat],
     ]);
 
-    console.log('[IntelligentRouter] Initialized with 12 cloud agents');
+    console.log('[IntelligentRouter] Initialized with 12 cloud agents + VERA attribution');
   }
 
   /**
@@ -111,17 +116,56 @@ export class IntelligentRouter {
 
       const totalTimeMs = Date.now() - startTime;
 
+      // Calculate cost savings vs naive multi-LLM approach
+      // Naive approach would be: 4 agents x $0.015 = $0.06 per query
+      const naiveCost = 4 * 0.015;
+      const costSavings = Math.max(0, naiveCost - response.totalCost);
+
       console.log('[IntelligentRouter] Routing complete', {
         strategy: response.routingStrategy,
         agentsUsed: response.agentsUsed,
         totalTimeMs,
         totalCost: response.totalCost,
+        costSavings,
       });
+
+      // Track routing decision in VERA ledger
+      let veraAttributionId: string | undefined;
+      try {
+        const projectId = enrichedContext?.metadata?.projectId || 'default-project';
+        const userId = enrichedContext?.metadata?.userId;
+
+        const veraRecord = await this.veraService.trackRouting({
+          projectId,
+          userId,
+          query,
+          routingStrategy: response.routingStrategy,
+          triageResult: {
+            complexity: triageResult.complexity,
+            reasoning: triageResult.reasoning || '',
+            estimatedCost: triageResult.estimatedCost,
+          },
+          agentsConsulted: response.agentsUsed,
+          executionTimeMs: totalTimeMs,
+          actualCost: response.totalCost,
+          costSavings,
+        });
+
+        veraAttributionId = veraRecord.id;
+        console.log('[IntelligentRouter] VERA attribution tracked', { veraAttributionId });
+      } catch (veraError: any) {
+        console.error('[IntelligentRouter] VERA tracking failed', {
+          error: veraError.message,
+        });
+        // Don't fail the request if VERA tracking fails
+      }
 
       return {
         ...response,
         executionTimeMs: totalTimeMs,
         triageResult,
+        veraAttributionId,
+        costSavings,
       };
     } catch (error: any) {
       console.error('[IntelligentRouter] Routing failed', {
@@ -213,6 +257,33 @@ export class IntelligentRouter {
     // Step 3: Synthesize responses with Digital Muse
     const synthesized = await this.digitalMuse.synthesize(query, cloudResponses);
 
+    // Track synthesis in VERA
+    try {
+      const projectId = enrichedContext?.metadata?.projectId || 'default-project';
+
+      await this.veraService.trackSynthesis({
+        projectId,
+        query,
+        agentContributions: cloudResponses.map((r) => ({
+          agent: r.agent,
+          content: r.content,
+          confidence: r.confidence || 0.85,
+          tokensGenerated: 0, // TODO: Track actual tokens
+          cost: 0.015,
+        })),
+        synthesizedBy: 'digital-muse',
+        finalAnswer: synthesized.synthesizedAnswer,
+      });
+
+      console.log('[IntelligentRouter] Synthesis tracked in VERA', {
+        agentsCount: cloudResponses.length,
+      });
+    } catch (veraError: any) {
+      console.error('[IntelligentRouter] VERA synthesis tracking failed', {
+        error: veraError.message,
+      });
+    }
+
     return {
       answer: synthesized.synthesizedAnswer,
       routingStrategy: 'hybrid',
@@ -261,6 +332,33 @@ export class IntelligentRouter {
 
     // Step 3: Synthesize responses with Digital Muse
     const synthesized = await this.digitalMuse.synthesize(query, cloudResponses);
+
+    // Track synthesis in VERA
+    try {
+      const projectId = enrichedContext?.metadata?.projectId || 'default-project';
+
+      await this.veraService.trackSynthesis({
+        projectId,
+        query,
+        agentContributions: cloudResponses.map((r) => ({
+          agent: r.agent,
+          content: r.content,
+          confidence: r.confidence || 0.85,
+          tokensGenerated: 0, // TODO: Track actual tokens
+          cost: 0.015,
+        })),
+        synthesizedBy: 'digital-muse',
+        finalAnswer: synthesized.synthesizedAnswer,
+      });
+
+      console.log('[IntelligentRouter] Cloud-full synthesis tracked in VERA', {
+        agentsCount: cloudResponses.length,
+      });
+    } catch (veraError: any) {
+      console.error('[IntelligentRouter] VERA synthesis tracking failed', {
+        error: veraError.message,
+      });
+    }
 
     return {
       answer: synthesized.synthesizedAnswer,
